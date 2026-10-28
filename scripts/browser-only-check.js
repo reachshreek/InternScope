@@ -2,12 +2,17 @@ import { chromium, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { createStatelessApp } from '../server/stateless.js';
+import { resumePdf } from '../tests/fixtures/resume-pdf.js';
+import { readFileSync } from 'node:fs';
 
 let calls = 0;
 const app = createStatelessApp({ collector: async source => {
   calls++; assert.equal(source.searchOptions.profile.resume, undefined);
   return [{ title: 'Software Intern', company: 'Fixture', url: 'https://jobs.ashbyhq.com/fixture/id', location: 'Seattle', description: 'Build software with Python and React. '.repeat(15), terms: [], years: [] }];
 } });
+// Use the production CSP, including its worker restrictions.
+const csp = JSON.parse(readFileSync('vercel.json', 'utf8')).headers[0].headers.find(h => h.key === 'Content-Security-Policy').value;
+app.use((req, res, next) => { res.set('Content-Security-Policy', csp); next(); });
 app.use(express.static('dist'));
 const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.on('listening', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -41,6 +46,18 @@ try {
     return (await api('/state')).profile;
   });
   assert.equal(upload.roles, 'Software'); assert.equal(upload.resumeName, 'resume.txt');
+  let pdfRequests = 0;
+  await page.route('**/api/resume', async route => { pdfRequests++; await route.fulfill({ status: 500, body: 'FUNCTION_INVOCATION_FAILED' }); });
+  await page.evaluate(() => openModal('resume'));
+  await page.locator('#resume-file').setInputFiles({ name: 'resume.pdf', mimeType: 'application/pdf', buffer: resumePdf() });
+  await page.locator('#resume-submit').click();
+  await expect(page.locator('#modal')).not.toBeVisible();
+  const pdfProfile = await page.evaluate(async () => (await api('/state')).profile);
+  assert.match(pdfProfile.resume, /Python React SQL/);
+  assert.equal(pdfProfile.resumeName, 'resume.pdf');
+  assert.equal(pdfProfile.roles, 'Software');
+  assert.equal(pdfRequests, 0, 'PDF parsing must not depend on the upload API');
+  await page.unroute('**/api/resume');
   const sources = await page.evaluate(async () => (await api('/state')).sources.length); assert.ok(sources > 22);
   await page.reload();
   assert.equal(await page.evaluate(async () => (await api('/state')).sources.length), sources);

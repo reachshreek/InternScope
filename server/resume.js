@@ -1,4 +1,3 @@
-import { PDFParse } from 'pdf-parse';
 import { unzipSync, strFromU8 } from 'fflate';
 import { extname } from 'node:path';
 import { resumeText } from './text.js';
@@ -8,6 +7,11 @@ export async function parseResume(file) {
   let text;
   if (ext === '.pdf') {
     if (file.buffer.subarray(0, 5).toString() !== '%PDF-') throw new Error('This file is not a valid PDF.');
+    // PDF.js loads native canvas bindings at import time. Keep that optional
+    // dependency out of API startup (including health, discovery and text uploads).
+    const { getData } = await import('pdf-parse/worker');
+    const { PDFParse } = await import('pdf-parse');
+    PDFParse.setWorker(getData());
     const parser = new PDFParse({ data: new Uint8Array(file.buffer), isEvalSupported: false });
     try { text = (await parser.getText({ first: 15 })).text; }
     finally { await parser.destroy(); }

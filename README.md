@@ -16,7 +16,7 @@ The Vercel deployment uses **no database, external backend, account, or paid sto
 - Python/JobSpy and SerpApi are disabled in this version. Public search adapters remain available.
 - Searches start when you open the page and repeat every two hours while it remains open. Closing or suspending the tab pauses/stops work. Reload starts a fresh scan using the saved source catalog. Ordinary search results live in tab memory; Saved/Applied/Hidden records and notes survive reloads.
 - Details for supported employer boards load when you open a posting. There is no persistent background description worker.
-- Resume files must be under 4 MB. Uploads are sent to your Vercel function for parsing, then the extracted text is stored only in this browser. Pasted text and preference edits stay in the browser.
+- Resume files must be under 4 MB. PDFs are parsed in this browser. Other file formats are sent to your Vercel function for parsing, then the extracted text is stored only in this browser. Pasted text and preference edits stay in the browser.
 - Clearing site data, using a different browser/device, or changing the site domain does not carry your workspace over. Use Export applications to back up your application history. Private browsing may discard data when closed. Storage failures are shown instead of reporting a successful save.
 - Local preview: `npm ci`, then `npm start`. It uses the same browser-only architecture, without a database.
 

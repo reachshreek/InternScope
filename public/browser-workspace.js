@@ -50,7 +50,9 @@ export function createBrowserWorkspace({ storage = localStorage, request = fetch
   async function remote(path, body) {
     const form = body instanceof FormData;
     const response = await request('/api' + path, { method: 'POST', headers: form ? {} : { 'Content-Type': 'application/json' }, body: form ? body : JSON.stringify(body), signal: AbortSignal.timeout(65000) });
-    let data; try { data = await response.json(); } catch { throw new Error(`Request failed (${response.status}). Try again shortly.`); }
+    let data; try { data = await response.json(); } catch {
+      throw new Error(response.status >= 500 ? 'The deployed API could not start or finish this request. Your saved browser data is unchanged. Check the Vercel deployment logs.' : `Request failed (${response.status}). Try again shortly.`);
+    }
     if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
     return data;
   }
@@ -148,7 +150,13 @@ export function createBrowserWorkspace({ storage = localStorage, request = fetch
       }
       next.resume = resumeText(next.resume); write('profile', next); return { profile: next, skills: extractSkills(next.resume) };
     }
-    if (url.pathname === '/resume') { const parsed = await remote('/resume', body); return api('/profile', { method: 'PUT', body: parsed }); }
+    if (url.pathname === '/resume') {
+      const file = body.get('resume');
+      const parsed = file?.name?.toLowerCase().endsWith('.pdf')
+        ? await (await import('./pdf-resume.js')).readPdfResume(file)
+        : await remote('/resume', body);
+      return api('/profile', { method: 'PUT', body: parsed });
+    }
     if (url.pathname === '/refresh') { void scan(); return { message: running ? 'Searching while this tab is open.' : 'Search complete.' }; }
     if (url.pathname === '/sources' && method === 'POST') {
       const token = normalizeBoardToken(body.kind, body.token);

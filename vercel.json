@@ -3,7 +3,7 @@
   "framework": null,
   "buildCommand": "node scripts/build-vercel.js",
   "outputDirectory": "dist",
-  "functions": { "api/index.js": { "maxDuration": 60 } },
+  "functions": { "api/index.js": { "maxDuration": 60, "includeFiles": "node_modules/{pdf-parse,pdfjs-dist,@napi-rs}/**" } },
   "rewrites": [{ "source": "/api/:path*", "destination": "/api" }],
   "headers": [{ "source": "/(.*)", "headers": [
     { "key": "X-Content-Type-Options", "value": "nosniff" },

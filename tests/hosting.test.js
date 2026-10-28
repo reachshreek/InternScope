@@ -12,6 +12,32 @@ test('Vercel entry starts in a fresh instance without SQLite or backend configur
   assert.equal(config.functions['api/index.js'].maxDuration, 60);
 });
 
+test('health, discovery and text uploads work even if PDF native dependencies cannot load', () => {
+  const script = `
+    import { registerHooks } from 'node:module';
+    import assert from 'node:assert/strict';
+    registerHooks({ resolve(name, context, next) {
+      if (/pdf-parse|pdfjs-dist|@napi-rs/.test(name)) throw new Error('Simulated missing serverless PDF dependency');
+      return next(name, context);
+    } });
+    const { createStatelessApp } = await import('./server/stateless.js');
+    const app = createStatelessApp({ collector: async () => {
+      const rows = []; rows.discoveredBoards = [{kind:'ashby',token:'new-board',name:'New board'}]; return rows;
+    } });
+    const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.on('listening', resolve));
+    const base = 'http://127.0.0.1:' + server.address().port;
+    try {
+      assert.equal((await fetch(base+'/api/health')).status,200);
+      const scan = await fetch(base+'/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:{kind:'community',name:'Community',token:'Summer2027-Internships'}})});
+      assert.equal((await scan.json()).discoveredBoards[0].token,'new-board');
+      const form = new FormData(); form.append('resume',new Blob(['Software engineering student with Python and SQL experience.']),'resume.txt');
+      const uploaded = await fetch(base+'/api/resume',{method:'POST',body:form});
+      assert.equal(uploaded.status,200);
+    } finally { await new Promise(resolve => server.close(resolve)); }
+  `;
+  execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, VERCEL: '1' } });
+});
+
 async function serve(t, options) {
   const server = createStatelessApp(options).listen(0, '127.0.0.1');
   await new Promise(resolve => server.on('listening', resolve));
