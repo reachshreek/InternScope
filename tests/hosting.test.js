@@ -45,6 +45,14 @@ async function serve(t, options) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 const post = (base, path, body) => fetch(base + '/api' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+test('detail API preserves employer rate limits for the browser queue', async t => {
+  const retryAfter = Date.now() + 7200000;
+  const base = await serve(t, { detail: async () => { throw Object.assign(new Error('Employer rate limit'), { status: 429, retryAfter }); } });
+  const response = await post(base, '/detail', { job: { url: 'https://fixture.wd1.myworkdayjobs.com/Careers/job/Intern_JR123', title: 'Intern' } });
+  assert.equal(response.status, 502);
+  const result = await response.json();
+  assert.equal(result.status, 429); assert.equal(result.retryAfter, retryAfter); assert.equal(result.permanent, false);
+});
 test('stateless scan waits for results, validates targets, strips resumes, and disables Python', async t => {
   let calls = 0;
   const base = await serve(t, { collector: async source => {

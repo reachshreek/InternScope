@@ -67,7 +67,7 @@ export function createStatelessApp({ collector = collectSource, detail = fetchJo
     const job = req.body?.job;
     if (!job || !boardFromUrl(job.url) || typeof job.title !== 'string') return res.status(400).json({ error: 'Automatic details are available for supported employer boards. Open the original posting for other sites.' });
     try { res.json(await detail({ url: job.url, title: job.title.slice(0, 500), company: String(job.company || '').slice(0, 200) }, [])); }
-    catch (error) { res.status(502).json({ error: String(error.message).slice(0, 500) }); }
+    catch (error) { res.status(502).json({ error: String(error.message).slice(0, 500), status: error.status, retryAfter: error.retryAfter, permanent: !!error.permanent }); }
   });
   app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   app.use((error, req, res, next) => res.status(error.code === 'LIMIT_FILE_SIZE' || error.type === 'entity.too.large' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'Resume files must be under 4 MB.' : 'Invalid request.' }));

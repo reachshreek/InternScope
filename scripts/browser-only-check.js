@@ -30,6 +30,14 @@ try {
   await expect(page.locator('#resume-state')).toHaveText('READY TO MATCH');
   await expect(page.locator('.job-card').first()).toBeVisible();
   const id = await page.evaluate(async () => (await api('/jobs')).jobs[0].id);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.job-card [data-action="hide"]').first().click();
+  await expect(page.locator('.job-card')).toHaveCount(0);
+  assert.equal(await page.evaluate(async id => (await api(`/jobs/${id}`)).job.status, id), 'hidden');
+  await page.locator('#toast-undo').click();
+  await expect(page.locator('.job-card')).toHaveCount(1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'card actions must fit on mobile');
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(async id => {
     await api(`/jobs/${id}`, { method: 'PATCH', body: { status: 'applied', note: 'Keep my note' } });
     await loadState({ refreshJobs: true });
@@ -80,6 +88,43 @@ try {
     finally { Storage.prototype.setItem = original; }
   });
   assert.equal(await page.evaluate(async () => (await api('/state')).profile.roles), 'Software');
+  // Exercise automatic Workday details without opening a modal, including a
+  // source refresh replacing the record while a detail request is in flight.
+  const backfill = await page.evaluate(async () => {
+    const { createBrowserWorkspace } = await import('./browser-workspace.js');
+    const values = new Map([['internscope.browser.v1.sources', JSON.stringify([{ id: 1, kind: 'workday', name: 'Fixture', token: 'fixture.wd1.myworkdayjobs.com/Careers', enabled: true }])]]);
+    const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), key: i => [...values.keys()][i], get length() { return values.size; } };
+    let resolveDetail, requests = 0;
+    const listing = { title: 'Software Intern', company: 'Fixture', url: 'https://fixture.wd1.myworkdayjobs.com/Careers/job/Seattle/Intern_JR123', location: 'Seattle', description: '', terms: [], years: [], postedAt: '2026-10-20T00:00:00.000Z', dateBasis: 'estimated' };
+    const workspace = createBrowserWorkspace({ storage, autoStart: false, request: async (url, options) => {
+      if (url.endsWith('/scan')) return Response.json({ jobs: [listing], complete: true });
+      if (url.endsWith('/detail')) { requests++; return new Promise(resolve => { resolveDetail = () => resolve(Response.json({ description: 'Python software engineering and React projects. '.repeat(15), descriptionQuality: 'full', url: listing.url, method: 'employer-workday-api', postedAt: '2026-10-18T00:00:00.000Z', dateBasis: 'published', postingMetadata: { workdayDetailsFetchedAt: '2026-10-28T00:00:00.000Z', requisitionId: 'JR123', timeType: 'Full time', locations: ['Seattle', 'Remote'], postedDatePrecision: 'day' } })); }); }
+      throw new Error('Unexpected request');
+    } });
+    try {
+      await workspace.scan();
+      for (let n = 0; n < 100 && !resolveDetail; n++) await new Promise(resolve => setTimeout(resolve, 10));
+      if (!resolveDetail) throw new Error('Automatic backfill did not start');
+      const id = [...workspace.jobs.keys()][0];
+      await workspace.scan();
+      await workspace.api(`/jobs/${id}`, { method: 'PATCH', body: { status: 'saved', note: 'Keep Workday note' } });
+      await workspace.api(`/jobs/${id}/enrich`, { method: 'POST' });
+      resolveDetail();
+      for (let n = 0; n < 100 && (await workspace.api(`/jobs/${id}`)).enrichment.state !== 'done'; n++) await new Promise(resolve => setTimeout(resolve, 10));
+      await workspace.scan();
+      const result = await workspace.api(`/jobs/${id}`);
+      const persisted = JSON.parse(values.get('internscope.browser.v1.application.' + id));
+      return { requests, job: result.job, persisted, enrichment: (await workspace.api('/state')).enrichment };
+    } finally { workspace.dispose(); }
+  });
+  assert.equal(backfill.requests, 1, 'automatic and modal work must be deduplicated');
+  assert.equal(backfill.job.match.quality, 'full');
+  assert.equal(backfill.job.requisitionId, 'JR123');
+  assert.equal(backfill.job.dateBasis, 'published');
+  assert.equal(backfill.job.postedAt, '2026-10-18T00:00:00.000Z');
+  assert.equal(backfill.persisted.note, 'Keep Workday note');
+  assert.equal(backfill.persisted.job.descriptionQuality, 'full');
+  assert.equal(backfill.enrichment.quality.full, 1);
   assert.equal(errors.length, 0, errors.join('\n')); assert.ok(calls > 22);
-  console.log('Vercel-only browser checks passed: profile/resume/source persistence, Applied/notes, isolated users, quota errors, and bounded scans.');
+  console.log('Vercel-only browser checks passed: automatic Workday details, refresh races, metadata/notes preservation, mobile Hide/Undo, profile/resume/source persistence, isolated users, and quota errors.');
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
