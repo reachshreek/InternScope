@@ -24,6 +24,6 @@ async function measure(concurrency) {
   } finally { service.stop(); }
 }
 try {
-  const threeWorkersMs = await measure(3), sixteenWorkersMs = await measure(16);
-  console.log(JSON.stringify({ fixtureBoards: 96, simulatedLatencyMs: 60, threeWorkersMs, sixteenWorkersMs, speedup: Number((threeWorkersMs / sixteenWorkersMs).toFixed(2)), note: 'Controlled scheduler benchmark; real website latency and rate limits vary.' }));
+  const sixteenWorkersMs = await measure(16), twentyFourWorkersMs = await measure(24);
+  console.log(JSON.stringify({ fixtureBoards: 96, simulatedLatencyMs: 60, sixteenWorkersMs, twentyFourWorkersMs, speedup: Number((sixteenWorkersMs / twentyFourWorkersMs).toFixed(2)), note: 'Controlled scheduler benchmark; real website latency and rate limits vary. Per-host limits are unchanged.' }));
 } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }

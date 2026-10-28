@@ -13,11 +13,14 @@ import { AGGREGATOR_KINDS, AGGREGATOR_URLS } from './aggregators.js';
 import { createEnricher } from './enrichment.js';
 import { descriptionQuality } from './quality.js';
 import { BOARD_KINDS, normalizeBoardToken } from './boards.js';
+import { workspaceAccess } from './access.js';
 
 export function createApp({ store = openStore(), refreshHours = Number(process.env.REFRESH_HOURS || 2), collector, enrich, enrichmentOptions } = {}) {
   const app = express(), enricher = createEnricher(store, enrichmentOptions), refresher = createRefresher(store, { hours: Number.isFinite(refreshHours) && refreshHours > 0 ? refreshHours : 2, collector, enrich, backgroundDetails: true, onRefresh: () => enricher.sync() });
   const matchJob = createMatchCache();
   app.disable('x-powered-by');
+  app.get('/runtime.js', (req, res) => res.type('js').send(''));
+  app.use(workspaceAccess());
   app.use((req, res, next) => {
     const loopbackOnly = !process.env.HOST || ['127.0.0.1', 'localhost', '::1'].includes(process.env.HOST);
     if (loopbackOnly && !['localhost', '127.0.0.1', '[::1]', '::1'].includes(req.hostname)) return res.status(403).json({ error: 'This workspace only accepts local hostnames.' });
@@ -26,7 +29,9 @@ export function createApp({ store = openStore(), refreshHours = Number(process.e
     if (req.path.startsWith('/api')) res.set('Cache-Control', 'no-store');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
       try {
-        if (new URL(req.headers.origin).host !== req.headers.host) return res.status(403).json({ error: 'Request origin is not allowed.' });
+        const origin = new URL(req.headers.origin);
+        const publicOrigin = process.env.PUBLIC_ORIGIN && new URL(process.env.PUBLIC_ORIGIN).origin;
+        if (origin.host !== req.headers.host && origin.origin !== publicOrigin) return res.status(403).json({ error: 'Request origin is not allowed.' });
       } catch { return res.status(403).json({ error: 'Invalid request origin.' }); }
     }
     next();

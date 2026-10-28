@@ -1,3 +1,32 @@
+# Internscope — Vercel only
+
+The Vercel deployment uses **no database, external backend, account, or paid storage service**. Resume text, preferences, connected sources, and application history are saved in this browser's local storage. Matching runs in your browser. Vercel functions fetch individual public sources and parse uploaded files without retaining personal data.
+
+## Deploy
+
+1. Push this version to GitHub and redeploy the existing Vercel project.
+2. Use framework **Other**, build command `node scripts/build-vercel.js`, output directory `dist`. The checked-in `vercel.json` supplies these settings and the API route.
+3. Remove old overrides that start `server/index.js`. No `BACKEND_URL`, Render service, SQLite file, or environment variables are required.
+4. Open the site and save your resume/preferences. Reload and verify they remain. Open a second browser profile to confirm it has a separate workspace.
+
+## How this version works
+
+- Up to 12 source requests run at once, with at most three per shared host and one per Workday company. Newly discovered boards join the current scan.
+- Each source has a 45-second network budget. Paged sources check two pages per query/category; partial coverage is reported and earlier in-tab results are retained. All enabled boards are still visited. Some public platforms block cloud-hosted scraping; failures remain visible.
+- Python/JobSpy and SerpApi are disabled in this version. Public search adapters remain available.
+- Searches start when you open the page and repeat every two hours while it remains open. Closing or suspending the tab pauses/stops work. Reload starts a fresh scan using the saved source catalog. Ordinary search results live in tab memory; Saved/Applied/Hidden records and notes survive reloads.
+- Details for supported employer boards load when you open a posting. There is no persistent background description worker.
+- Resume files must be under 4 MB. Uploads are sent to your Vercel function for parsing, then the extracted text is stored only in this browser. Pasted text and preference edits stay in the browser.
+- Clearing site data, using a different browser/device, or changing the site domain does not carry your workspace over. Use Export applications to back up your application history. Private browsing may discard data when closed. Storage failures are shown instead of reporting a successful save.
+- Local preview: `npm ci`, then `npm start`. It uses the same browser-only architecture, without a database.
+
+The previous SQLite implementation remains available through `npm run start:legacy` for existing local installations and tests. It is **not imported or deployed as the Vercel API**. The reference below describes that legacy local mode; persistent scheduling, JobSpy, SerpApi, and SQLite statements below do not apply to the Vercel version.
+
+---
+
+This is Internscope, a program I built that scrapes job sites like LinkedIn, greenshouse, etc, as well as a bunch ofcompany websites, to find jobs and internships that fit well for me.
+
+
 # Internscope
 
 A complete, private internship discovery web app. Upload your resume or paste its text/source, set your preferences, and browse a feed ranked by resume alignment and freshness. Marking a posting **Applied** immediately moves it out of Discover and into Applied. That decision survives refreshes and restarts.
@@ -10,7 +39,7 @@ On another machine, install **Node.js 24 or newer**, then run:
 
 ```sh
 npm ci
-npm start
+npm run start:legacy
 ```
 
 The first refresh begins automatically. Browse results while sources finish; a separate background queue progressively retrieves full employer descriptions.

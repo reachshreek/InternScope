@@ -7,24 +7,8 @@ import { descriptionQuality } from './quality.js';
 import { BOARD_KINDS, normalizeBoardToken } from './boards.js';
 import { postingIdentity } from './posting-identity.js';
 
-export const DEFAULT_PROFILE = { resume: '', resumeName: '', roles: '', keywords: '', locations: '', season: '', year: '', includeRemote: true, remoteOnly: false, includeUnknown: true, strictRoles: false, exclude: '' };
-export const DEFAULT_SOURCES = [
-  ['community', 'Simplify & Pitt CSC', 'Summer2027-Internships'],
-  ['greenhouse', 'Stripe', 'stripe'], ['greenhouse', 'Cloudflare', 'cloudflare'],
-  ['greenhouse', 'Figma', 'figma'], ['greenhouse', 'SpaceX', 'spacex'],
-  ['greenhouse', 'Anduril', 'andurilindustries'], ['greenhouse', 'Duolingo', 'duolingo'],
-  ['greenhouse', 'Roblox', 'roblox'], ['greenhouse', 'Databricks', 'databricks'],
-  ['lever', 'Palantir', 'palantir'], ['lever', 'Zoox', 'zoox'],
-  ['ashby', 'Ramp', 'ramp'], ['ashby', 'Notion', 'notion']
-];
-export const PLATFORM_SOURCES = [['linkedin', 'LinkedIn', 'internships'], ['indeed', 'Indeed', 'internships'], ['ziprecruiter', 'ZipRecruiter', 'internships']];
-export const AGGREGATOR_SOURCES = [['runway', 'Runway', 'internships'], ['internlist', 'Intern List · Engineering', 'eng']];
-export const WORKDAY_SOURCES = [
-  ['workday', 'NVIDIA', 'nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite'],
-  ['workday', 'Micron', 'micron.wd1.myworkdayjobs.com/External'],
-  ['workday', 'Analog Devices', 'analogdevices.wd1.myworkdayjobs.com/External'],
-  ['workday', 'KLA', 'kla.wd1.myworkdayjobs.com/Search']
-];
+import { DEFAULT_PROFILE, DEFAULT_SOURCES, PLATFORM_SOURCES, AGGREGATOR_SOURCES, WORKDAY_SOURCES } from './defaults.js';
+export { DEFAULT_PROFILE, DEFAULT_SOURCES, PLATFORM_SOURCES, AGGREGATOR_SOURCES, WORKDAY_SOURCES } from './defaults.js';
 function mapJob(row) {
   return { ...JSON.parse(row.posting_metadata || '{}'), id: row.id, url: row.url, title: row.title, company: row.company, location: row.location, description: row.description,
     postedAt: row.posted_at, dateBasis: row.date_basis, terms: JSON.parse(row.terms), years: JSON.parse(row.years), remote: !!row.remote,
@@ -34,6 +18,7 @@ function mapJob(row) {
 }
 
 export function openStore(directory = process.env.DATA_DIR || './data') {
+  if (process.env.VERCEL) throw new Error('The legacy SQLite server cannot run on Vercel. Use api/index.js and the checked-in Vercel configuration.');
   mkdirSync(resolve(directory), { recursive: true });
   const db = new DatabaseSync(resolve(directory, 'internscope.sqlite'));
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
@@ -72,6 +57,8 @@ export function openStore(directory = process.env.DATA_DIR || './data') {
   }
   // Non-unique: pre-existing duplicates keep their separate application histories.
   db.exec('CREATE INDEX IF NOT EXISTS jobs_posting_identity ON jobs(posting_identity)');
+  // Source ingestion/expiration otherwise scans every membership for every board.
+  db.exec('CREATE INDEX IF NOT EXISTS job_sources_source_active ON job_sources(source_id,active,job_id)');
   db.exec(`CREATE TABLE IF NOT EXISTS job_detail_refs(job_id TEXT REFERENCES jobs(id),kind TEXT NOT NULL,external_id TEXT NOT NULL,url TEXT,PRIMARY KEY(job_id,kind,external_id));
     CREATE TABLE IF NOT EXISTS enrichment_queue(job_id TEXT PRIMARY KEY REFERENCES jobs(id),state TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,priority REAL NOT NULL DEFAULT 0,next_attempt TEXT NOT NULL,last_attempt TEXT,last_error TEXT,queued_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS enrichment_due ON enrichment_queue(state,next_attempt,priority);

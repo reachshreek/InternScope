@@ -6,13 +6,18 @@ const state = { view: 'new', page: 1, maxAge: 0, q: '', platform: '', quality: '
 const platformNames = { greenhouse: 'Greenhouse', ashby: 'Ashby', workday: 'Workday', linkedin: 'LinkedIn', indeed: 'Indeed', ziprecruiter: 'ZipRecruiter', runway: 'Runway', internlist: 'Intern List (Engineering)', lever: 'Lever', community: 'Community feed' };
 let toastTimer, undoAction, searchTimer, pollTimer, detailTimer, detailToken = 0;
 const pendingJobs = new Map();
-let mutationRevision = 0, reconcileTimer;
+let mutationRevision = 0, reconcileTimer, stateRequest = 0, lastScanFeedAt = 0;
 
 async function api(path, options = {}) {
+  const mutating = options.method && !['GET', 'HEAD'].includes(options.method);
+  if (mutating) mutationRevision++;
+  try {
+  if (window.browserWorkspace) return await (await window.browserWorkspace).api(path, options);
   const response = await fetch(`/api${path}`, { ...options, headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }, body: options.body && !(options.body instanceof FormData) ? JSON.stringify(options.body) : options.body });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Unable to complete this request.');
   return data;
+  } finally { if (mutating) mutationRevision++; }
 }
 function notify(message, undo) {
   clearTimeout(toastTimer); undoAction = undo;
@@ -42,9 +47,10 @@ function companyLogo(job) {
 function tag(value, className = '') { return `<span class="tag ${className}">${escape(value)}</span>`; }
 
 async function loadState({ refreshJobs = false, skipJobs = false } = {}) {
-  const revision = mutationRevision;
+  const revision = mutationRevision, request = ++stateRequest;
   try {
     const data = await api('/state');
+    if (request !== stateRequest) return;
     if (pendingJobs.size || revision !== mutationRevision) {
       clearTimeout(pollTimer); pollTimer = setTimeout(() => loadState(), 500); return;
     }
@@ -52,13 +58,18 @@ async function loadState({ refreshJobs = false, skipJobs = false } = {}) {
     const lastId = data.refresh.last?.id + ':' + data.refresh.last?.finished_at;
     const changed = state.lastRun && lastId !== state.lastRun;
     const detailsChanged = state.enrichmentRevision !== null && state.enrichmentRevision !== data.enrichment?.revision;
+    const scanAdvanced = data.refresh.running && data.refresh.progress?.checked !== state.data?.refresh.progress?.checked && Date.now() - lastScanFeedAt >= 10000;
     state.enrichmentRevision = data.enrichment?.revision;
     state.lastRun = lastId; state.data = data;
     renderState();
-    if (!skipJobs && (refreshJobs || changed || detailsChanged || (wasRunning && !data.refresh.running))) await loadJobs();
+    if (!skipJobs && (refreshJobs || changed || detailsChanged || scanAdvanced || (wasRunning && !data.refresh.running))) {
+      lastScanFeedAt = Date.now(); await loadJobs();
+    }
+    if (request !== stateRequest) return;
     clearTimeout(pollTimer);
     pollTimer = setTimeout(() => loadState(), data.refresh.running ? 2000 : data.enrichment?.running ? 5000 : 15000);
   } catch (error) {
+    if (request !== stateRequest) return;
     $('#connection-banner').classList.remove('hidden');
     $('#connection-banner').classList.add('error');
     $('#connection-banner').textContent = `Can't reach your workspace. Make sure Internscope is running. ${error.message}`;
@@ -67,6 +78,11 @@ async function loadState({ refreshJobs = false, skipJobs = false } = {}) {
 }
 function renderState() {
   const { profile, skills, counts, refresh, sources } = state.data;
+  if (state.data.browserOnly) {
+    $('#enrichment-progress').parentElement.querySelector('.privacy-note').textContent = 'Open a posting to fetch its employer details. Searches run while this tab is open.';
+    $('.resume-panel .privacy-note').textContent = 'Saved in this browser. Clearing site data removes your workspace.';
+    $('.autopilot p').textContent = 'Checks every two hours while this tab is open.';
+  }
   $('#nav-new').textContent = counts.active.toLocaleString();
   $('#nav-saved').textContent = counts.saved.toLocaleString();
   $('#nav-applied').textContent = counts.applied.toLocaleString();
@@ -116,6 +132,7 @@ function renderState() {
   banner.classList.remove('error');
   banner.classList.toggle('hidden', !errors.length || refresh.running);
   if (errors.length && !refresh.running) banner.innerHTML = `<span>${errors.length} source${errors.length === 1 ? '' : 's'} couldn't be refreshed. Existing results are still available.</span><button class="text-button" data-open="sources">View details ${icon('arrow')}</button>`;
+  if (state.data.storageError) { banner.classList.remove('hidden'); banner.classList.add('error'); banner.textContent = state.data.storageError; }
 }
 function preference(svg, label, value) { return `<div class="preference">${icon(svg)}<div><span class="preference-label">${label}</span><span class="preference-value">${escape(value)}</span></div></div>`; }
 
@@ -248,10 +265,10 @@ function resumeModal() {
   const profile = state.data.profile;
   return `<p class="modal-intro">A resume helps us connect your skills with the right opportunities. Upload a file or paste your resume text or source code.</p>
     <div class="tabs" role="tablist" aria-label="Resume input"><button class="tab active" role="tab" aria-selected="true" aria-controls="upload-panel" id="upload-tab" data-tab="upload">Upload a file</button><button class="tab" role="tab" aria-selected="false" aria-controls="paste-panel" id="paste-tab" data-tab="paste">Paste text or source</button></div>
-    <form id="resume-form"><div id="upload-panel" role="tabpanel" aria-labelledby="upload-tab"><div class="drop-zone" id="drop-zone">${icon('upload')}<p>Drop your resume here</p><small>PDF, DOCX, TXT, Markdown, LaTeX, HTML, JSON, JSX, or TSX · up to 5 MB</small><input type="file" name="resume" id="resume-file" aria-label="Choose resume file" accept=".pdf,.docx,.txt,.md,.tex,.html,.htm,.json,.jsx,.tsx"></div></div>
+    <form id="resume-form"><div id="upload-panel" role="tabpanel" aria-labelledby="upload-tab"><div class="drop-zone" id="drop-zone">${icon('upload')}<p>Drop your resume here</p><small>PDF, DOCX, TXT, Markdown, LaTeX, HTML, JSON, JSX, or TSX · up to 4 MB</small><input type="file" name="resume" id="resume-file" aria-label="Choose resume file" accept=".pdf,.docx,.txt,.md,.tex,.html,.htm,.json,.jsx,.tsx"></div></div>
     <div id="paste-panel" class="hidden" role="tabpanel" aria-labelledby="paste-tab"><label class="field"><span>Resume text or source code</span><textarea class="resume-editor" id="resume-text" placeholder="Paste your resume here, including LaTeX or HTML source…">${escape(profile.resume)}</textarea><small>We read the text and formatting. Code is never executed.</small></label></div>
     ${profile.resume ? `<div class="resume-preview"><strong>Currently using: ${escape(profile.resumeName || 'Pasted resume')}</strong><p>${escape(profile.resume.slice(0, 800))}</p></div>` : ''}
-    <div id="resume-error" class="form-error hidden" role="alert"></div><div class="modal-footer"><span>Processed locally. Your resume isn't sent to job sites.</span><div class="modal-footer-actions">${profile.resume ? '<button type="button" class="text-button" id="remove-resume">Remove resume</button>' : ''}<button class="button" id="resume-submit">Save resume ${icon('arrow')}</button></div></div></form>`;
+    <div id="resume-error" class="form-error hidden" role="alert"></div><div class="modal-footer"><span>${state.data.browserOnly ? "Saved in this browser. File uploads are parsed by Vercel; never sent to job sites." : "Processed locally. Your resume is not sent to job sites."}</span><div class="modal-footer-actions">${profile.resume ? '<button type="button" class="text-button" id="remove-resume">Remove resume</button>' : ''}<button class="button" id="resume-submit">Save resume ${icon('arrow')}</button></div></div></form>`;
 }
 function formError(id, message) { const el = $(id); el.textContent = message; el.classList.remove('hidden'); }
 function wireResume() {
@@ -272,7 +289,7 @@ function wireResume() {
       if (tab === 'upload') {
         const file = droppedFile || $('#resume-file').files[0];
         if (!file) throw new Error('Choose a resume file or switch to Paste text or source.');
-        if (file.size > 5 * 1024 * 1024) throw new Error('Choose a file under 5 MB.');
+        if (file.size > 4 * 1024 * 1024) throw new Error('Choose a file under 4 MB.');
         const body = new FormData(); body.append('resume', file);
         await api('/resume', { method: 'POST', body });
       } else {
@@ -325,6 +342,11 @@ function sourcesModal() {
     <form class="source-add" id="source-form"><h3>Connect another company</h3><div class="field-row"><label class="field"><span>Career board provider</span><select name="kind"><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option><option value="ashby">Ashby</option><option value="workday">Workday</option></select></label><label class="field"><span>Company name</span><input name="name" required maxlength="100" placeholder="e.g. Acme"></label></div><label class="field"><span>Board identifier or careers URL</span><input name="token" required maxlength="1000" placeholder="e.g. acme, or paste a careers URL"><small>Paste the company's public Greenhouse, Lever, Ashby, or Workday careers URL. Workday needs the full URL, including its career site. For a European Lever or Greenhouse identifier, add @eu.</small></label><div class="form-error hidden" id="source-error" role="alert"></div><button type="submit" class="button secondary">Connect source ${icon('link')}</button></form><div class="modal-footer"><span>Failed sources retry on the next refresh.</span><button class="button" id="source-refresh">Refresh sources ${icon('refresh')}</button></div>`;
 }
 function wireSources() {
+  if (state.data.browserOnly) {
+    $('.modal-intro', $('#modal')).textContent = 'Checks every enabled source while this tab is open. Paged sources retrieve recent results in bounded requests. Public search may be blocked by some sites; JobSpy and search-index subscriptions are not used. Your source catalog stays in this browser.';
+    $('#search-index-form').classList.add('hidden');
+    $$('.coverage-card small').forEach(el => { if (el.textContent.includes('JobSpy') || el.textContent.includes('fallback')) el.textContent = 'Public search'; });
+  }
   const filter = () => {
     const query = $('#source-search').value.toLowerCase().trim(), kind = $('#source-kind-filter').value;
     $$('#source-list .source-row').forEach(row => row.classList.toggle('hidden', (!!kind && row.dataset.kind !== kind) || (!!query && !row.dataset.search.includes(query))));
@@ -433,6 +455,7 @@ function wireDetails(job) {
   });
 }
 function aboutModal() {
+  if (state.data.browserOnly) return `<p class="modal-intro">Your personal internship workspace, saved in this browser.</p><section class="about-section"><h3>Search while you browse</h3><p>Sources are checked when you open the site and every two hours while the tab stays open. Reloading starts a fresh search using your saved source catalog. Closing the tab stops searching. Each paged source checks a limited recent window; coverage depends on accessible public pages.</p></section><section class="about-section"><h3>Your data</h3><p>Your resume, preferences, application history and notes stay in this browser's storage. Uploaded files are sent to Vercel for parsing without being saved on the server. Pasted text and matching stay in the browser. Clearing site data removes your workspace, and another device has a separate workspace. Export applications to keep a copy of your history.</p></section><section class="about-section"><h3>Matches and details</h3><p>Scores compare your skills and resume wording with postings; they are not acceptance probabilities. Incomplete descriptions produce provisional scores. Opening a supported employer posting fetches its full description and updates the score. Some sites block automated access; open the original posting for details. Marking Applied only tracks your action; submit applications on the employer site.</p></section>`;
   return `<p class="modal-intro">Internscope brings fresh opportunities and your experience into the same place.</p><section class="about-section"><h3>How your matches are calculated</h3><p>We compare recognized skills and meaningful terms in your resume with each posting. Skill coverage contributes 65% and shared terms 35% to the base score. Preferred roles and keywords adjust that score. Your recommended feed combines 72% resume alignment with 28% freshness, so new, relevant opportunities rise to the top. These percentages describe text alignment, not your chance of receiving an offer.</p></section><section class="about-section"><h3>Where opportunities come from</h3><p>Listings come from the <a href="https://github.com/SimplifyJobs/Summer2027-Internships" target="_blank" rel="noopener noreferrer">Simplify & Pitt CSC internship list</a>, company boards, public platform searches, Runway, and Intern List. You can connect more company boards in Job sources. Coverage depends on accessible sources and is not the entire internet.</p></section><section class="about-section"><h3>More detail, clearer matches</h3><p>Each posting is labeled Title only, Summary, or Full description. Scores for incomplete postings are estimates. Full descriptions load progressively in the background; opening a posting prioritizes its details and updates its score when they arrive. You can choose Full descriptions only in the Posting details filter. Some pages remain incomplete when their details are unavailable publicly.</p></section><section class="about-section"><h3>Dates that mean what they say</h3><p>“Posted” is the published date provided by a company feed. “Listed” is when a community feed added the job. When neither is available, “First seen” is when Internscope discovered it. A company's last edit is never presented as a new posting.</p></section><section class="about-section"><h3>A search that keeps moving</h3><p>Internscope checks sources every two hours while the server is running, even if this browser tab is closed. Keep the app running on an always-on computer or deploy it with persistent storage for continuous updates. Failed sources keep their last known results and retry on the next refresh.</p></section><section class="about-section"><h3>Your workspace stays yours</h3><p>Resume parsing and matching happen in this app. Your resume isn't sent to job sites or an AI service. Marking Applied records your application and moves it out of Discover; use the original posting to submit the application. Saved jobs and application notes persist in the local database.</p></section>`;
 }
 async function startRefresh() {
@@ -473,3 +496,4 @@ $('#toast-close').addEventListener('click', () => $('#toast').classList.add('hid
 $('#toast-undo').addEventListener('click', () => { const action = undoAction; undoAction = null; $('#toast').classList.add('hidden'); action?.(); });
 $('#mobile-menu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
 loadState({ refreshJobs: true });
+window.addEventListener('internscope-update', () => loadState({ refreshJobs: true }));

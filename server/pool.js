@@ -3,7 +3,10 @@ export function runPool(items, worker, { concurrency, key = () => '', perKey = c
   const pending = [], hosts = new Map();
   let active = 0, failure;
   return new Promise((resolve, reject) => {
-    const add = items => pending.push(...items.map(item => ({ item, host: key(item), limit: typeof perKey === 'function' ? perKey(item) : perKey })));
+    const add = items => {
+      pending.push(...items.map(item => ({ item, host: key(item), limit: typeof perKey === 'function' ? perKey(item) : perKey })));
+      pump();
+    };
     function pump() {
       while (!failure && !stopped() && active < concurrency) {
         const index = pending.findIndex(({ host, limit }) => (hosts.get(host) || 0) < limit);
