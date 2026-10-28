@@ -1,0 +1,26 @@
+{
+  "name": "internscope",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A private internship discovery and application tracker",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "dev": "node --watch --env-file-if-exists=.env server/index.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check server/index.js && node --check public/app.js",
+    "test:browser": "node scripts/browser-check.js && node scripts/enrichment-browser-check.js && node scripts/status-browser-check.js && node scripts/progress-browser-check.js && node scripts/workday-metadata-browser-check.js",
+    "test:performance": "node scripts/performance-check.js",
+    "test:scrape-performance": "node scripts/scrape-performance-check.js",
+    "test:jobspy": "node scripts/jobspy-check.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "express": "^5.1.0",
+    "fflate": "^0.8.2",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": { "@playwright/test": "^1.56.0" }
+}

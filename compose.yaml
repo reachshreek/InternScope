@@ -1,0 +1,12 @@
+services:
+  internscope:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      REFRESH_HOURS: 2
+    volumes:
+      - internscope-data:/app/data
+    restart: unless-stopped
+volumes:
+  internscope-data:
