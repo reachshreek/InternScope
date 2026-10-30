@@ -45,6 +45,23 @@ async function serve(t, options) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 const post = (base, path, body) => fetch(base + '/api' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+test('stateless platform search uses only the server key and exposes configuration without secrets', async t => {
+  const previous = process.env.SERPAPI_API_KEY;
+  process.env.SERPAPI_API_KEY = 'server-test-secret';
+  t.after(() => { if (previous === undefined) delete process.env.SERPAPI_API_KEY; else process.env.SERPAPI_API_KEY = previous; });
+  const base = await serve(t, { collector: async source => {
+    assert.equal(source.searchOptions.apiKey, ['indeed', 'ziprecruiter'].includes(source.kind) ? 'server-test-secret' : '');
+    assert.equal(source.searchOptions.jobspy, false);
+    assert.equal(source.searchOptions.queryLimit, 2);
+    return { jobs: [], complete: false, mode: 'indexed' };
+  } });
+  const config = await (await post(base, '/search-config', {})).json();
+  assert.deepEqual(config, { serpapi: { configured: true, fromEnvironment: true } });
+  for (const kind of ['indeed', 'ziprecruiter', 'linkedin']) {
+    const response = await post(base, '/scan', { source: { kind, name: kind, token: 'internships' }, apiKey: 'untrusted-client-key' });
+    assert.equal(response.status, 200); assert.ok(!(await response.text()).includes('secret'));
+  }
+});
 test('detail API preserves employer rate limits for the browser queue', async t => {
   const retryAfter = Date.now() + 7200000;
   const base = await serve(t, { detail: async () => { throw Object.assign(new Error('Employer rate limit'), { status: 429, retryAfter }); } });

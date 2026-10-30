@@ -161,8 +161,10 @@ export function parseJobSpyRows(kind, rows) {
       employmentType: Array.isArray(row.job_type) ? row.job_type.join(' ') : String(row.job_type || ''), remote: row.is_remote === true };
   }));
 }
-export async function collectWebSource(source, { profile = {}, htmlFetcher = fetchSearchHtml, jsonFetcher = fetchJson, apiKey = process.env.SERPAPI_API_KEY || '', jobspy = jobSpyEnabled(), jobspyFetcher = runJobSpy, pages = Number(process.env.SEARCH_PAGES || 3), details = Number(process.env.SEARCH_DETAILS || 10), pause = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
-  const queries = searchQueries(profile), jobs = [], warnings = [];
+export async function collectWebSource(source, { profile = {}, htmlFetcher = fetchSearchHtml, jsonFetcher = fetchJson, apiKey = process.env.SERPAPI_API_KEY || '', preferIndexed = false, queryLimit = 6, jobspy = jobSpyEnabled(), jobspyFetcher = runJobSpy, pages = Number(process.env.SEARCH_PAGES || 3), details = Number(process.env.SEARCH_DETAILS || 10), pause = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  const candidates = searchQueries(profile);
+  if (preferIndexed && apiKey) candidates.sort((a, b) => Number(a.keywords === 'internship') - Number(b.keywords === 'internship'));
+  const queries = candidates.slice(0, Math.max(1, Math.min(6, queryLimit))), jobs = [], warnings = [];
   if (jobspy && JOBSPY_KINDS.includes(source.kind)) {
     try {
       const result = await jobspyFetcher(jobSpyInput(source.kind, queries, { remoteOnly: profile.remoteOnly }));
@@ -171,6 +173,7 @@ export async function collectWebSource(source, { profile = {}, htmlFetcher = fet
     } catch (error) { warnings.push(`JobSpy unavailable: ${String(error.message).slice(0,500)} Using the existing search fallback.`); }
   }
   const maxPages = Math.max(1, Math.min(10, Number(pages) || 3));
+  if (!(preferIndexed && apiKey)) {
   try {
     for (const query of queries) {
       let offset = 0;
@@ -203,11 +206,12 @@ export async function collectWebSource(source, { profile = {}, htmlFetcher = fet
     }
     warnings.push(`Direct search unavailable; using indexed results. ${error.code === 'rate_limited' ? 'Direct search was rate limited.' : ''}`.trim());
   }
+  }
   // No login/captcha handling or proxy rotation: query an independent job index when configured.
   // One request per query keeps provider credit usage predictable. Key is never returned to clients.
   for (const query of queries) {
     const url = new URL('https://serpapi.com/search.json');
-    url.search = new URLSearchParams({ engine: 'google_jobs', q: `${query.keywords}${query.location ? ` in ${query.location}` : ''}`, api_key: apiKey, no_cache: 'true' });
+    url.search = new URLSearchParams({ engine: 'google_jobs', q: `${query.keywords}${profile.remoteOnly ? ' remote' : ''}${query.location ? ` in ${query.location}` : ''}`, api_key: apiKey, no_cache: preferIndexed ? 'false' : 'true' });
     try { jobs.push(...parseIndexedJobs(await jsonFetcher(url.toString()), source.kind)); }
     catch {
       if (jobs.length) return { jobs: unique(jobs), complete: false, mode: 'indexed', warnings: [...warnings, 'Indexed search failed on a later query; partial results were kept.'] };

@@ -160,14 +160,17 @@ export function createBrowserWorkspace({ storage = localStorage, request = fetch
     running = false; last.finished_at = new Date().toISOString(); saveSources(true);
     window.dispatchEvent(new Event('internscope-update'));
   }
-  function state() {
+  let searchConfig;
+  async function state() {
+    searchConfig ||= remote('/search-config', {}).catch(() => ({ serpapi: { configured: false, fromEnvironment: true, unavailable: true } }));
+    const integrations = await searchConfig;
     const all = [...jobs.values()].map(job => viewJob(job, false)), current = profile();
     const counts = { active: all.filter(j => j.active && ['new','saved'].includes(j.status)).length, saved: all.filter(j => j.status === 'saved').length, applied: all.filter(j => j.status === 'applied').length };
     const quality = {}; for (const job of all.filter(j => j.active)) { const q = descriptionQuality(job); quality[q] = (quality[q] || 0) + 1; }
     return { profile: current, skills: extractSkills(current.resume), sources, counts, browserOnly: true, storageError,
       refresh: { running, progress, intervalHours: 2, last },
       enrichment: { ...details.state(), revision, quality },
-      integrations: { serpapi: { configured: false, fromEnvironment: true } },
+      integrations,
       coverage: [...new Set(sources.map(s => s.kind))].map(kind => { const group = sources.filter(s => s.kind === kind); return { kind, total: group.length, enabled: group.filter(s => s.enabled).length, checked: group.filter(s => s.last_attempt).length, jobs: all.filter(j => j.active && j.platforms?.includes(kind)).length }; }) };
   }
   async function api(path, options = {}) {

@@ -22,6 +22,7 @@ export function createStatelessApp({ collector = collectSource, detail = fetchJo
   });
   app.use(express.json({ limit: '256kb' }));
   app.get('/api/health', (req, res) => res.json({ ok: true, app: 'internscope', storage: 'browser' }));
+  app.post('/api/search-config', (req, res) => res.json({ serpapi: { configured: !!process.env.SERPAPI_API_KEY?.trim(), fromEnvironment: true } }));
   app.post('/api/scan', async (req, res) => {
     const input = req.body?.source || {};
     const fixed = [...DEFAULT_SOURCES, ...PLATFORM_SOURCES, ...AGGREGATOR_SOURCES].find(([kind,,token]) => input.kind === kind && input.token === token);
@@ -34,7 +35,9 @@ export function createStatelessApp({ collector = collectSource, detail = fetchJo
     for (const key of ['roles', 'locations']) profile[key] = String(req.body.profile?.[key] || '').slice(0, 500);
     profile.remoteOnly = !!req.body.profile?.remoteOnly;
     const source = { kind: input.kind, token, name: input.name.slice(0, 100), searchOptions: {
-      profile, details: 0, pages: 2, jobspy: false, apiKey: '',
+      profile, details: 0, pages: 2, jobspy: false,
+      apiKey: ['indeed', 'ziprecruiter'].includes(input.kind) ? process.env.SERPAPI_API_KEY?.trim() || '' : '',
+      preferIndexed: ['indeed', 'ziprecruiter'].includes(input.kind), queryLimit: 2,
       jsonFetcher: json, htmlFetcher: url => fetchSearchHtml(url, boundedFetch),
       request: input.kind === 'workday'
         ? (url, body) => requestPublicJson(url, { method: 'POST', body }, boundedFetch)

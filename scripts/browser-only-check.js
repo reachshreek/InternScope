@@ -74,7 +74,8 @@ try {
   await expect(otherPage.locator('#nav-applied')).toHaveText('0');
   await other.close();
   await page.evaluate(() => openModal('sources'));
-  await expect(page.locator('#search-index-form')).toBeHidden();
+  await expect(page.locator('#search-index-form')).toContainText('Indeed and ZipRecruiter search');
+  await expect(page.locator('#serpapi-key')).toHaveCount(0);
   await page.locator('#modal').evaluate(dialog => dialog.close());
   const downloadPromise = page.waitForEvent('download');
   await page.locator('a[href="/api/export"]').click();

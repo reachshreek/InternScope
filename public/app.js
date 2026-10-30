@@ -343,9 +343,10 @@ function sourcesModal() {
 }
 function wireSources() {
   if (state.data.browserOnly) {
-    $('.modal-intro', $('#modal')).textContent = 'Checks every enabled source while this tab is open. Paged sources retrieve recent results in bounded requests. Public search may be blocked by some sites; JobSpy and search-index subscriptions are not used. Your source catalog stays in this browser.';
-    $('#search-index-form').classList.add('hidden');
-    $$('.coverage-card small').forEach(el => { if (el.textContent.includes('JobSpy') || el.textContent.includes('fallback')) el.textContent = 'Public search'; });
+    const configured = state.data.integrations?.serpapi?.configured;
+    $('.modal-intro', $('#modal')).textContent = 'Checks every enabled source while this tab is open. Indeed and ZipRecruiter use Google Jobs indexed listings when SerpApi is connected, retaining only matching platform links. Otherwise they attempt public search pages, which may be blocked. Your source catalog stays in this browser.';
+    $('#search-index-form').innerHTML = `<h3>Indeed and ZipRecruiter search · ${configured ? 'Connected' : 'Not configured'}</h3><p class="source-explanation">${configured ? 'SerpApi is configured on the server. Refresh jobs to retrieve indexed listings. Coverage is partial and each platform uses up to two searches per refresh. Provider caching is allowed to reduce quota use.' : 'Set SERPAPI_API_KEY in the server environment to enable indexed listings, then restart or redeploy the app. Get a key from serpapi.com. The key stays on the server; provider quota and pricing apply.'}</p>`;
+    $$('.coverage-card small').forEach(el => { if (el.textContent.includes('JobSpy')) el.textContent = configured ? 'Google Jobs index · matching platform links' : 'Public search · may be restricted'; });
   }
   const filter = () => {
     const query = $('#source-search').value.toLowerCase().trim(), kind = $('#source-kind-filter').value;
